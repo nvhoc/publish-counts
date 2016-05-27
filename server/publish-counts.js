@@ -1,9 +1,10 @@
 var noWarnings = false;
 
 Counts = {};
-Counts.publish = function(self, name, cursor, options) {
+Counts.publish = function (self, name, cursor, options) {
   var initializing = true;
   var handle;
+  var id = Random.id();
   options = options || {};
 
   var extraField, countFn;
@@ -12,7 +13,7 @@ Counts.publish = function(self, name, cursor, options) {
     if ('function' === typeof extraField) {
       countFn = Counts._safeAccessorFunction(extraField);
     } else {
-      countFn = function(doc) {
+      countFn = function (doc) {
         return doc[extraField] || 0;    // return 0 instead of undefined.
       }
     }
@@ -23,7 +24,7 @@ Counts.publish = function(self, name, cursor, options) {
         return extraField(doc).length;
       });
     } else {
-      countFn = function(doc) {
+      countFn = function (doc) {
         if (doc[extraField]) {
           return doc[extraField].length;
         } else {
@@ -32,7 +33,6 @@ Counts.publish = function(self, name, cursor, options) {
       }
     }
   }
-
 
   if (countFn && options.nonReactive)
     throw new Error("options.nonReactive is not yet supported with options.countFromFieldLength or options.countFromFieldSum");
@@ -44,7 +44,7 @@ Counts.publish = function(self, name, cursor, options) {
 
   var count = 0;
   var observers = {
-    added: function(doc) {
+    added: function (doc) {
       if (countFn) {
         count += countFn(doc);
       } else {
@@ -52,43 +52,56 @@ Counts.publish = function(self, name, cursor, options) {
       }
 
       if (!initializing)
-        self.changed('counts', name, {count: count});
+        self.changed('counts', id, {
+          count: count,
+          name: name,
+          updatedAt: new Date()
+        });
     },
-    removed: function(doc) {
+    removed: function (doc) {
       if (countFn) {
         count -= countFn(doc);
       } else {
         count -= 1;
       }
-      self.changed('counts', name, {count: count});
+      self.changed('counts', id, {
+        count: count,
+        name: name,
+        updatedAt: new Date()
+      });
     }
   };
   if (countFn) {
-    observers.changed = function(newDoc, oldDoc) {
+    observers.changed = function (newDoc, oldDoc) {
       if (countFn) {
         count += countFn(newDoc) - countFn(oldDoc);
       }
 
-      self.changed('counts', name, {count: count});
+      self.changed('counts', id, {
+        count: count,
+        name: name,
+        updatedAt: new Date()
+      });
     };
   }
   if (!countFn) {
-    if (!options.isCounted)
-      self.changed('counts', name, {count: cursor.count()});
-    else
-      self.added('counts', name, {count: cursor.count()});
+    self.added('counts', id, {
+      count: cursor.count(),
+      name: name,
+      updatedAt: new Date()
+    });
   }
   if (!options.nonReactive)
     handle = cursor.observe(observers);
   if (countFn)
-    self.added('counts', name, {count: count});
+    self.added('counts', id, {count: count, name: name, updatedAt: new Date()});
 
   if (!options.noReady)
     self.ready();
 
   initializing = false;
 
-  self.onStop(function() {
+  self.onStop(function () {
     if (handle)
       handle.stop();
   });
@@ -103,7 +116,7 @@ Counts.noWarnings = function (noWarn) {
   noWarnings = (0 == arguments.length || !!noWarn);
 }
 
-Counts._safeAccessorFunction = function safeAccessorFunction (fn) {
+Counts._safeAccessorFunction = function safeAccessorFunction(fn) {
   // ensure that missing fields don't corrupt the count.  If the count field
   // doesn't exist, then it has a zero count.
   return function (doc) {
@@ -120,14 +133,14 @@ Counts._safeAccessorFunction = function safeAccessorFunction (fn) {
   };
 }
 
-Counts._optimizeQueryFields = function optimizeQueryFields (fields, extraField, noWarn) {
+Counts._optimizeQueryFields = function optimizeQueryFields(fields, extraField, noWarn) {
   switch (typeof extraField) {
     case 'function':      // accessor function used.
       if (undefined === fields) {
         // user did not place restrictions on cursor fields.
         Counts._warn(noWarn,
-                      'publish-counts: Collection cursor has no field limits and will fetch entire documents.  ' +
-                      'consider specifying only required fields.');
+          'publish-counts: Collection cursor has no field limits and will fetch entire documents.  ' +
+          'consider specifying only required fields.');
         // if cursor field limits are empty to begin with, leave them empty.  it is the
         // user's responsibility to specify field limits when using accessor functions.
       }
@@ -149,8 +162,8 @@ Counts._optimizeQueryFields = function optimizeQueryFields (fields, extraField, 
 
       if (2 < _.keys(fields).length)
         Counts._warn(noWarn,
-                      'publish-counts: unused fields detected in cursor fields option',
-                      _.omit(fields, ['_id', extraField]));
+          'publish-counts: unused fields detected in cursor fields option',
+          _.omit(fields, ['_id', extraField]));
 
       // use modified field limits.  automatically defaults to _id and extraField if none specified by user.
       return fields;
@@ -158,11 +171,11 @@ Counts._optimizeQueryFields = function optimizeQueryFields (fields, extraField, 
     case 'undefined':     // basic count
       if (fields && 0 < _.keys(_.omit(fields, ['_id'])).length)
         Counts._warn(noWarn,
-                      'publish-counts: unused fields removed from cursor fields option.',
-                      _.omit(fields, ['_id']));
+          'publish-counts: unused fields removed from cursor fields option.',
+          _.omit(fields, ['_id']));
 
       // dispose of user field limits, only _id is required
-      fields = { _id:  true };
+      fields = {_id: true};
 
       // use modified field limits.  automatically defaults to _id if none specified by user.
       return fields;
@@ -172,7 +185,7 @@ Counts._optimizeQueryFields = function optimizeQueryFields (fields, extraField, 
   }
 }
 
-Counts._warn = function warn (noWarn) {
+Counts._warn = function warn(noWarn) {
   if (noWarnings || noWarn || 'production' == process.env.NODE_ENV)
     return;
 
